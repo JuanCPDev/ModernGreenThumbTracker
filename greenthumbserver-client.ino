@@ -1,23 +1,21 @@
-#include <CronAlarms.h>
-#include <time.h>
-#ifdef ESP8266
-#include <sys/time.h>                   // struct timeval
-#endif   
+#include <Arduino.h>
 #include <EEPROM.h>
 #include <ESP8266HTTPClient.h>
 #include <ESP8266WiFi.h>
 #include <ESPAsyncWebServer.h>
 
-
 char apSsid[] = "GreenThumbTracker";
 char apPass[] = "password";
 String connectionStatus = "No information recived";
+String host = "host";
 
-struct userdetails {
-  String ssid;
-  String password;
-  String name;
-  String serverurl;
+struct userdetails
+{
+  char ssid[50];
+  char password[50];
+  char name[50];
+  char userId[100];
+  bool addedtodb;
 };
 
 userdetails globaluser;
@@ -25,83 +23,104 @@ userdetails globaluser;
 AsyncWebServer server(80);
 bool serverdatasent;
 bool credentialExist;
+bool trackerAddedToDb;
 
-
-void setup() {
-  Serial.begin(115200);
-  EEPROM.begin(512);
-  serverdatasent=false;
-  //Cron.create("*/2 * * * * *", updateServer, false);
-  connectionStatus = "No information recived";
-  credentialExist = credentialsExist();
-  delay(1000);
-  pinMode(0, OUTPUT);
-  if (credentialExist) {
-    connectionStatus = "Trying to connect using saved credentials";
-    Serial.println("\nCredentials found");
-    connectStation();
-  } else {
-    Serial.println("\nNo credentials, starting AP");
-    initAP();
+void writeCredentials(userdetails user)
+{
+  for (int i = 0; i < EEPROM.length(); i++)
+  {
+    EEPROM.write(i, 0);
   }
+  EEPROM.put(0, user);
+  EEPROM.commit();
 }
 
-void loop() {
-  if (!WiFi.isConnected() && WiFi.status() == WL_WRONG_PASSWORD) {
-    connectionStatus = "incorrect credentials";
+int readValue()
+{
+  int value;
+  int total;
+  int valueList[5];
+  digitalWrite(0, HIGH);
+  delay(2000);
+  valueList[0] = analogRead(A0);
+  delay(500);
+  valueList[1] = analogRead(A0);
+  delay(500);
+  valueList[2] = analogRead(A0);
+  delay(500);
+  valueList[3] = analogRead(A0);
+  delay(500);
+  valueList[4] = analogRead(A0);
+  delay(500);
+
+  for (int in : valueList)
+  {
+    total = total + in;
   }
-  if (WiFi.isConnected() && !credentialExist) {
-    writeCredentials(globaluser);
-    Serial.println("Connected to Wifi");
-    connectionStatus = "Connected";
-    credentialExist = credentialsExist();
-    addTrackerInitialServer();
-    delay(10000);
-    server.end();
-    WiFi.softAPdisconnect(true);
-  }
-  
+  value = total / 5;
+  digitalWrite(0, LOW);
+
+  return value;
+}
+userdetails getcredentials()
+{
+  userdetails user;
+  EEPROM.get(0, user);
+  return user;
 }
 
-void addTrackerInitialServer(){
+void addTrackerInitialServer()
+{
   Serial.println("Adding new tracker to DB");
   WiFiClient client;
   HTTPClient http;
-  String data= "{\"name\":\""+ globaluser.name +"\"}";
-  http.begin(client,"url");
+  String str(globaluser.name);
+  Serial.println(str);
+  String addTrackerUrl = host + "addtracker?userId=" + globaluser.userId;
+  Serial.print("add tracker url");
+  Serial.println(addTrackerUrl);
+  String data = "{\"name\":\"" + str + "\"}";
+  http.begin(client, addTrackerUrl);
   http.addHeader("Content-Type", "application/json");
   int httpResponseCode = http.PUT(data);
-  Serial.println("sent: "+data);
+  Serial.println("sent: " + data);
   Serial.println(httpResponseCode);
+  http.end();
 }
 
-void checkMoisture(){
-  /* TO DO
-  Serial.println("Adding new tracker to DB");
+void sendValue(int value)
+{
   WiFiClient client;
   HTTPClient http;
-  String data= "{\"name\":\""+ globaluser.name +"\"}";
-  http.begin(client,"url");
+  String str(globaluser.name);
+  String sendValueUrl = host + "updatetracker?userId=" + globaluser.userId;
+  String data = "{\"name\":\"" + str + "\",\"value\":\"" + value + "\"}";
+  Serial.print("send value url");
+  Serial.println(sendValueUrl);
+  http.begin(client, sendValueUrl);
   http.addHeader("Content-Type", "application/json");
   int httpResponseCode = http.PUT(data);
-  Serial.println("sent: "+data);
+  Serial.println("sent: " + data);
   Serial.println(httpResponseCode);
-  */
+  http.end();
 }
 
-void connectStation() {
+void connectStation()
+{
   Serial.print("Trying to connect...");
   globaluser = getcredentials();
   WiFi.begin(globaluser.ssid, globaluser.password);
-  while (!WiFi.isConnected()) {
-    delay(1000);
+  while (!WiFi.isConnected())
+  {
+    delay(500);
   }
   Serial.println("Successfully Connected ");
   connectionStatus = "Connected";
   Serial.println(WiFi.localIP());
 }
 
-void initAP() {
+void initAP()
+{
   Serial.println("Creating AP");
   WiFi.softAP(apSsid, apPass);
   delay(5000);
@@ -109,50 +128,97 @@ void initAP() {
   Serial.println(apSsid);
   Serial.println("Listining for requests");
 
-  server.on("/credentials", HTTP_POST, [](AsyncWebServerRequest* request) {
-    if (request->hasParam("ssid") && request->hasParam("password") && request->hasParam("serverurl") && request->hasParam("name")) {
-      globaluser.ssid = request->getParam("ssid")->value();
-      globaluser.password = request->getParam("password")->value();
-      globaluser.serverurl = request->getParam("serverurl")->value();
-      globaluser.name = request->getParam("name")->value();
+  server.on("/credentials", HTTP_POST, [](AsyncWebServerRequest *request)
+            {
+    if (request->hasParam("ssid") && request->hasParam("password") && request->hasParam("userId") && request->hasParam("name")) {
+      strcpy(globaluser.ssid, request->getParam("ssid")->value().c_str());
+      strcpy(globaluser.password, request->getParam("password")->value().c_str());
+      strcpy(globaluser.userId, request->getParam("userId")->value().c_str());
+      strcpy(globaluser.name, request->getParam("name")->value().c_str());
       request->send(200, "text/plain", "Parameters recieved");
       connectionStatus = "Trying to connect...";
+      Serial.println(globaluser.ssid);
       WiFi.begin(globaluser.ssid, globaluser.password);
 
     } else {
       request->send(400, "text/plain", "Missing parameters");
-    }
-  });
+    } });
 
-  server.on("/getstatus", HTTP_GET, [](AsyncWebServerRequest* request) {
-    request->send(200, "text/plain", connectionStatus);
-  });
+  server.on("/getstatus", HTTP_GET, [](AsyncWebServerRequest *request)
+            { request->send(200, "text/plain", connectionStatus); });
   server.begin();
 }
 
-void writeCredentials(userdetails user) {
-  for (int i = 0; i < EEPROM.length(); i++) {
-    EEPROM.write(i, 0);
-  }
-  EEPROM.put(0, user);
-  EEPROM.commit();
-  delay(1000);
-}
-
-userdetails getcredentials() {
+bool credentialsExist()
+{
   userdetails user;
   EEPROM.get(0, user);
-  delay(1000);
-  return user;
-}
-
-bool credentialsExist() {
-  userdetails user;
-  EEPROM.get(0, user);
-  delay(1000);
-  if (user.ssid == "" && user.password == "") {
+  if (user.ssid[0] == 0 && user.password[0] == 0)
+  {
     return false;
-  } else {
+  }
+  else
+  {
     return true;
+  }
+}
+
+void setup()
+{
+  Serial.begin(115200);
+  while (!Serial)
+  {
+    ;
+  }
+  EEPROM.begin(512);
+  globaluser = getcredentials();
+  Serial.print("ssid");
+  Serial.println(globaluser.ssid);
+  serverdatasent = false;
+  credentialExist = false;
+  connectionStatus = "No information recived";
+  credentialExist = credentialsExist();
+  delay(1000);
+  pinMode(0, OUTPUT);
+  if (credentialExist)
+  {
+    connectionStatus = "Trying to connect using saved credentials";
+    Serial.println("\nCredentials found");
+    connectStation();
+  }
+  else
+  {
+    Serial.println("\nNo credentials, starting AP");
+    initAP();
+  }
+}
+
+void loop()
+{
+  if (!WiFi.isConnected() && WiFi.status() == WL_WRONG_PASSWORD)
+  {
+    connectionStatus = "incorrect credentials";
+  }
+  if (WiFi.isConnected() && !credentialExist)
+  {
+    globaluser.addedtodb = true;
+    writeCredentials(globaluser);
+    Serial.println("Connected to Wifi");
+    connectionStatus = "Connected";
+    credentialExist = credentialsExist();
+    delay(10000);
+    server.end();
+    WiFi.softAPdisconnect(true);
+    addTrackerInitialServer();
+  }
+  if (WiFi.isConnected() && credentialExist && globaluser.addedtodb)
+  {
+    Serial.println("Going to sleep");
+    int value = readValue();
+    delay(2000);
+    sendValue(value);
+    delay(5000);
+    // ESP.deepSleep(10e6);
+    Serial.println("wake");
   }
 }
