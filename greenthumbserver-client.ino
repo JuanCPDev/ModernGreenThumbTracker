@@ -7,7 +7,7 @@
 char apSsid[] = "GreenThumbTracker";
 char apPass[] = "password";
 String connectionStatus = "No information recived";
-String host = "host";
+String host = "hostUrl";
 
 struct userdetails
 {
@@ -38,10 +38,10 @@ void writeCredentials(userdetails user)
 int readValue()
 {
   int value;
-  int total;
+  int total = 0;
   int valueList[5];
-  digitalWrite(0, HIGH);
-  delay(2000);
+  digitalWrite(5, HIGH);
+  delay(500);
   valueList[0] = analogRead(A0);
   delay(500);
   valueList[1] = analogRead(A0);
@@ -51,15 +51,13 @@ int readValue()
   valueList[3] = analogRead(A0);
   delay(500);
   valueList[4] = analogRead(A0);
-  delay(500);
 
   for (int in : valueList)
   {
     total = total + in;
   }
   value = total / 5;
-  digitalWrite(0, LOW);
-
+  digitalWrite(5, LOW);
   return value;
 }
 userdetails getcredentials()
@@ -77,8 +75,6 @@ void addTrackerInitialServer()
   String str(globaluser.name);
   Serial.println(str);
   String addTrackerUrl = host + "addtracker?userId=" + globaluser.userId;
-  Serial.print("add tracker url");
-  Serial.println(addTrackerUrl);
   String data = "{\"name\":\"" + str + "\"}";
   http.begin(client, addTrackerUrl);
   http.addHeader("Content-Type", "application/json");
@@ -95,8 +91,6 @@ void sendValue(int value)
   String str(globaluser.name);
   String sendValueUrl = host + "updatetracker?userId=" + globaluser.userId;
   String data = "{\"name\":\"" + str + "\",\"value\":\"" + value + "\"}";
-  Serial.print("send value url");
-  Serial.println(sendValueUrl);
   http.begin(client, sendValueUrl);
   http.addHeader("Content-Type", "application/json");
   int httpResponseCode = http.PUT(data);
@@ -130,6 +124,7 @@ void initAP()
 
   server.on("/credentials", HTTP_POST, [](AsyncWebServerRequest *request)
             {
+    Serial.println("Request recieved");
     if (request->hasParam("ssid") && request->hasParam("password") && request->hasParam("userId") && request->hasParam("name")) {
       strcpy(globaluser.ssid, request->getParam("ssid")->value().c_str());
       strcpy(globaluser.password, request->getParam("password")->value().c_str());
@@ -137,7 +132,6 @@ void initAP()
       strcpy(globaluser.name, request->getParam("name")->value().c_str());
       request->send(200, "text/plain", "Parameters recieved");
       connectionStatus = "Trying to connect...";
-      Serial.println(globaluser.ssid);
       WiFi.begin(globaluser.ssid, globaluser.password);
 
     } else {
@@ -166,20 +160,14 @@ bool credentialsExist()
 void setup()
 {
   Serial.begin(115200);
-  while (!Serial)
-  {
-    ;
-  }
   EEPROM.begin(512);
   globaluser = getcredentials();
-  Serial.print("ssid");
-  Serial.println(globaluser.ssid);
   serverdatasent = false;
   credentialExist = false;
   connectionStatus = "No information recived";
   credentialExist = credentialsExist();
   delay(1000);
-  pinMode(0, OUTPUT);
+  pinMode(5, OUTPUT);
   if (credentialExist)
   {
     connectionStatus = "Trying to connect using saved credentials";
@@ -213,12 +201,10 @@ void loop()
   }
   if (WiFi.isConnected() && credentialExist && globaluser.addedtodb)
   {
-    Serial.println("Going to sleep");
     int value = readValue();
-    delay(2000);
     sendValue(value);
     delay(5000);
-    // ESP.deepSleep(10e6);
-    Serial.println("wake");
+    ESP.deepSleep(3.6e+6); // one hour interval
+    
   }
 }
