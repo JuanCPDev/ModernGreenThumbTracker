@@ -3,11 +3,13 @@
 #include <ESP8266HTTPClient.h>
 #include <ESP8266WiFi.h>
 #include <ESPAsyncWebServer.h>
+#include <WiFiClientSecureBearSSL.h>
 
 char apSsid[] = "GreenThumbTracker";
 char apPass[] = "password";
 String connectionStatus = "No information recived";
-String host = "hostUrl";
+String host = "https://url.com/";
+
 
 struct userdetails
 {
@@ -70,13 +72,15 @@ userdetails getcredentials()
 void addTrackerInitialServer()
 {
   Serial.println("Adding new tracker to DB");
-  WiFiClient client;
+  std::unique_ptr<BearSSL::WiFiClientSecure> client(new BearSSL::WiFiClientSecure);
+  client->setInsecure();
+
   HTTPClient http;
   String str(globaluser.name);
   Serial.println(str);
   String addTrackerUrl = host + "addtracker?userId=" + globaluser.userId;
   String data = "{\"name\":\"" + str + "\"}";
-  http.begin(client, addTrackerUrl);
+  http.begin(*client, addTrackerUrl);
   http.addHeader("Content-Type", "application/json");
   int httpResponseCode = http.PUT(data);
   Serial.println("sent: " + data);
@@ -86,12 +90,14 @@ void addTrackerInitialServer()
 
 void sendValue(int value)
 {
-  WiFiClient client;
+  std::unique_ptr<BearSSL::WiFiClientSecure> client(new BearSSL::WiFiClientSecure);
+  client->setInsecure();
+
   HTTPClient http;
   String str(globaluser.name);
   String sendValueUrl = host + "updatetracker?userId=" + globaluser.userId;
   String data = "{\"name\":\"" + str + "\",\"value\":\"" + value + "\"}";
-  http.begin(client, sendValueUrl);
+  http.begin(*client, sendValueUrl);
   http.addHeader("Content-Type", "application/json");
   int httpResponseCode = http.PUT(data);
   Serial.println("sent: " + data);
@@ -205,6 +211,5 @@ void loop()
     sendValue(value);
     delay(5000);
     ESP.deepSleep(3.6e+6); // one hour interval
-    
   }
 }
